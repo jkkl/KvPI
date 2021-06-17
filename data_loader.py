@@ -1,17 +1,20 @@
 import sys
+from unicodedata import category
 sys.path.append('./lib')
 from google_bert import BasicTokenizer
 import random
 import torch
 from treelstm import Tree
+from treelstm import Constants
 
 
 class DataLoader:
-    def __init__(self, train_path, dev_path, max_len):
+    def __init__(self, train_path, dev_path, tree_vocab, max_len):
         self.tokenizer = BasicTokenizer()
         self.train_path = train_path
         self.dev_path = dev_path
         self.max_len = max_len
+        self.tree_vocab = tree_vocab
 
         self.train_seg_list, self.train_tgt_list, self.train_segment_list, self.train_type_list, self.train_category_list, self.train_a_seg_list, self.train_a_tree_list, self.train_b_seg_list, self.train_b_tree_list = self.load_data(train_path)
         self.dev_seg_list, self.dev_tgt_list, self.dev_segment_list, self.dev_type_list, self.dev_category_list, self.dev_a_seg_list, self.dev_a_tree_list, self.dev_b_seg_list, self.dev_b_tree_list = self.load_data(dev_path)
@@ -46,6 +49,10 @@ class DataLoader:
         seg[gender_idx:sep_idx] = [2 for _ in range(sep_idx-gender_idx)]
         return [0]+seg+[3]  # [CLS]+seg+[SEP]
 
+    def read_sentence(self, line):
+        indices = self.tree_vocab.convertToIdx(line, Constants.UNK_WORD)
+        return torch.LongTensor(indices)
+
     def read_trees(self, batch):
         trees = [self.read_tree(line) for line in batch]
         return trees
@@ -77,6 +84,23 @@ class DataLoader:
                         prev = tree
                         idx = parent
         return root
+    
+    def data_format(self, src_line):
+        '''
+        将原始数据格式，转换为模型样本格式
+        '''
+        line_arr = src_line.strip('\n').split('\t')
+        bert_input = line_arr[3].replace(": '", ": ").replace("',", ",").replace("'}", "}")
+        bert_input += ' <sep> ' + line_arr[2]
+        target = line_arr[5]
+        category = line_arr[4]
+        a_seg = line_arr[7]
+        a_tree = line_arr[8]
+        b_seg = line_arr[9]
+        b_tree = line_arr[10]
+
+        return bert_input, target, category, a_seg, a_tree, b_seg, b_tree
+
 
     def load_data(self, path):
         src_list = list()  # src_list contains segmented text
@@ -90,15 +114,16 @@ class DataLoader:
         b_parse_list = list()
         with open(path, 'r', encoding = 'utf8') as i:
             lines = i.readlines()
-            for l in lines:
-                content_list = l.strip('\n').split('\t')
-                text = content_list[0]
-                target = int(content_list[1])
-                category = int(content_list[2])
-                a_seg = self.seq_cut(content_list[3].split(' '))
-                a_tree = self.read_tree(content_list[4])
-                b_seg = self.seq_cut(content_list[5].split(' '))
-                b_tree = self.read_tree(content_list[6])
+            for l in lines[1:]:
+                text, target, category, a_seg, a_tree, b_seg, b_tree = self.data_format(l)
+                # content_list = l.strip('\n').split('\t')
+                # text = content_list[0]
+                target = int(target)
+                category = int(category)
+                a_seg = self.read_sentence(self.seq_cut(a_seg.split(' ')))
+                a_tree = self.read_tree(a_tree)
+                b_seg = self.read_sentence(self.seq_cut(b_seg.split(' ')))
+                b_tree = self.read_tree(b_tree)
                 seg_text = self.tokenizer.tokenize(text)
                 post_text = self.seq_cut(seg_text)
                 seg_tmp = self.segment(post_text)

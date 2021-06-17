@@ -133,7 +133,7 @@ if __name__ == '__main__':
         with open(out_path, 'w', encoding='utf8') as o:
             with open(test_data, 'r', encoding='utf8') as i:
                 lines = i.readlines()
-                for l in tqdm(lines, desc='Predicting'):
+                for l in tqdm(lines[1:], desc='Predicting'):
                     content_list = l.strip().split('\t')
                     text = content_list[0]
                     text_tokenized_list = tokenizer.tokenize(text)
